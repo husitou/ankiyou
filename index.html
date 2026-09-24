@@ -432,18 +432,18 @@
         <h3 class="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
           <i class="fa-solid fa-floppy-disk text-emerald-600"></i> データのインポート / エクスポート
         </h3>
-        <p class="text-xs text-slate-500 mb-4">登録した問題データをファイル（JSON形式）として保存・復元できます。</p>
+        <p class="text-xs text-slate-500 mb-4">登録した問題データをTXTファイル（CSV形式）として保存・復元できます。</p>
         
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <!-- Export Button -->
           <button onclick="exportQuestions()" class="py-3 px-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-            <i class="fa-solid fa-download text-sm"></i> <span>問題をエクスポート (保存)</span>
+            <i class="fa-solid fa-download text-sm"></i> <span>問題をTXTで保存 (エクスポート)</span>
           </button>
           
           <!-- Import Button & Hidden File Input -->
-          <input type="file" id="import-file-input" accept=".json" onchange="handleFileImport(event)" class="hidden">
+          <input type="file" id="import-file-input" accept=".txt,.csv,.json" onchange="handleFileImport(event)" class="hidden">
           <button onclick="document.getElementById('import-file-input').click()" class="py-3 px-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-            <i class="fa-solid fa-upload text-sm"></i> <span>問題をインポート (読み込み)</span>
+            <i class="fa-solid fa-upload text-sm"></i> <span>ファイルを読み込み (インポート)</span>
           </button>
         </div>
       </div>
@@ -484,14 +484,14 @@
     let typingIndex = 0;
     let typingScore = 0;
     let typingAnswered = false;
-    let typingFailedIds = []; // Tracks IDs missed in current test session
+    let typingFailedIds = [];
 
     // Quiz state
     let quizDeck = [];
     let quizIndex = 0;
     let quizScore = 0;
     let quizAnswered = false;
-    let quizFailedIds = []; // Tracks IDs missed in current quiz session
+    let quizFailedIds = [];
 
     // Load Data
     function loadAppData() {
@@ -568,7 +568,6 @@
       });
 
       if (mode === 'typing') {
-        // If typing hasn't been initialized or completed, start fresh. Otherwise maintain state!
         if (typingDeck.length === 0) {
           startTypingTest(false);
         }
@@ -889,7 +888,6 @@
       
       document.getElementById('quiz-question-text').innerText = `${quizIndex + 1}. ${item.q}`;
 
-      // Generate options
       const options = [item.a];
       const otherAnswers = [...new Set(rawQuestions.map(q => q.a))].filter(a => a !== item.a);
       
@@ -1106,7 +1104,6 @@
       saveQuestions();
       resetAllDecks();
 
-      // Reset test decks so new questions can be included
       typingDeck = [];
       quizDeck = [];
 
@@ -1154,69 +1151,103 @@
       }
     }
 
+    // EXPORT as CSV TXT File
     function exportQuestions() {
       if (rawQuestions.length === 0) {
         alert('エクスポートする問題がありません。');
         return;
       }
 
-      const jsonStr = JSON.stringify(rawQuestions, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
+      // Convert questions to CSV lines: "問題文,解答"
+      const lines = rawQuestions.map(item => {
+        let q = item.q.replace(/"/g, '""');
+        let a = item.a.replace(/"/g, '""');
+        if (q.includes(',') || q.includes('\n') || q.includes('"')) q = `"${q}"`;
+        if (a.includes(',') || a.includes('\n') || a.includes('"')) a = `"${a}"`;
+        return `${q},${a}`;
+      });
+
+      const txtContent = lines.join('\n');
+      const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       
       const link = document.createElement('a');
       const today = new Date().toISOString().slice(0, 10);
       link.href = url;
-      link.download = `quiz_questions_${today}.json`;
+      link.download = `quiz_questions_${today}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      showToast('問題データをファイルに書き出しました！');
+      showToast('問題データをTXTファイル(CSV形式)で保存しました！');
     }
 
+    // IMPORT from TXT / CSV / JSON
     function handleFileImport(e) {
       const file = e.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
       reader.onload = function(event) {
-        try {
-          const importedData = JSON.parse(event.target.result);
-          if (Array.isArray(importedData)) {
-            let count = 0;
-            importedData.forEach(item => {
-              if (item.q && item.a) {
+        const content = event.target.result;
+        let count = 0;
+
+        if (file.name.endsWith('.json')) {
+          try {
+            const importedData = JSON.parse(content);
+            if (Array.isArray(importedData)) {
+              importedData.forEach(item => {
+                if (item.q && item.a) {
+                  rawQuestions.push({
+                    id: item.id || (Date.now() + Math.random()),
+                    q: item.q,
+                    a: item.a,
+                    alt: Array.isArray(item.alt) ? item.alt : []
+                  });
+                  count++;
+                }
+              });
+            }
+          } catch(err) {
+            alert('JSONファイルの読み込みに失敗しました。');
+            return;
+          }
+        } else {
+          // Process as TXT / CSV
+          const lines = content.split(/\r?\n/);
+          lines.forEach(line => {
+            if (!line.trim()) return;
+            const parts = line.split(',');
+            if (parts.length >= 2) {
+              let q = parts[0].trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"');
+              let a = parts[1].trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"');
+              if (q && a) {
                 rawQuestions.push({
-                  id: item.id || (Date.now() + Math.random()),
-                  q: item.q,
-                  a: item.a,
-                  alt: Array.isArray(item.alt) ? item.alt : []
+                  id: Date.now() + Math.random(),
+                  q: q,
+                  a: a,
+                  alt: []
                 });
                 count++;
               }
-            });
-
-            if (count > 0) {
-              saveQuestions();
-              resetAllDecks();
-              typingDeck = [];
-              quizDeck = [];
-              showToast(`${count} 件の問題をインポートしました！`);
-            } else {
-              alert('ファイル内に有効な問題データが見つかりませんでした。');
             }
-          } else {
-            alert('無効なデータ形式です。');
-          }
-        } catch (err) {
-          alert('ファイルの読み込みに失敗しました。');
+          });
+        }
+
+        if (count > 0) {
+          saveQuestions();
+          resetAllDecks();
+          typingDeck = [];
+          quizDeck = [];
+          showToast(`${count} 件の問題をインポートしました！`);
+        } else {
+          alert('ファイル内に有効な問題データが見つかりませんでした。');
         }
         e.target.value = '';
       };
 
-      reader.readAsText(file);
+      reader.readAsText(file, 'UTF-8');
     }
 
     function deleteSingleQuestion(id) {
@@ -1275,5 +1306,7 @@
       resetAllDecks();
     };
   </script>
+</body>
+</html>
 </body>
 </html>
