@@ -432,18 +432,23 @@
         <h3 class="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
           <i class="fa-solid fa-floppy-disk text-emerald-600"></i> データのインポート / エクスポート
         </h3>
-        <p class="text-xs text-slate-500 mb-4">登録した問題データをTXTファイル（CSV形式）として保存・復元できます。</p>
+        <p class="text-xs text-slate-500 mb-4">登録した問題データをファイル（JSONまたはTXT形式）として保存・復元できます。</p>
         
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <!-- Export Button -->
-          <button onclick="exportQuestions()" class="py-3 px-4 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-            <i class="fa-solid fa-download text-sm"></i> <span>問題をTXTで保存 (エクスポート)</span>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <!-- Export JSON Button -->
+          <button onclick="exportQuestions()" class="py-3 px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-download text-sm"></i> <span>JSONで保存</span>
+          </button>
+          
+          <!-- Export TXT Button -->
+          <button onclick="exportQuestionsAsTxt()" class="py-3 px-3 bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-file-lines text-sm text-teal-600"></i> <span>TXT保存 (問題,解答)</span>
           </button>
           
           <!-- Import Button & Hidden File Input -->
-          <input type="file" id="import-file-input" accept=".txt,.csv,.json" onchange="handleFileImport(event)" class="hidden">
-          <button onclick="document.getElementById('import-file-input').click()" class="py-3 px-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
-            <i class="fa-solid fa-upload text-sm"></i> <span>ファイルを読み込み (インポート)</span>
+          <input type="file" id="import-file-input" accept=".json,.txt" onchange="handleFileImport(event)" class="hidden">
+          <button onclick="document.getElementById('import-file-input').click()" class="py-3 px-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-upload text-sm"></i> <span>ファイルを読み込む</span>
           </button>
         </div>
       </div>
@@ -546,7 +551,7 @@
       document.getElementById('review-count-badge').innerHTML = `<i class="fa-solid fa-rotate-right"></i> 復習: ${review}`;
     }
 
-    // Switch Mode without losing test progress
+    // Switch Mode
     function switchMode(mode) {
       currentMode = mode;
       
@@ -683,7 +688,7 @@
     }
 
 
-    // Smart text normalization helper
+    // Smart text normalization
     function normalizeText(str) {
       if (!str) return '';
       return str
@@ -888,6 +893,7 @@
       
       document.getElementById('quiz-question-text').innerText = `${quizIndex + 1}. ${item.q}`;
 
+      // Options
       const options = [item.a];
       const otherAnswers = [...new Set(rawQuestions.map(q => q.a))].filter(a => a !== item.a);
       
@@ -1151,23 +1157,40 @@
       }
     }
 
-    // EXPORT as CSV TXT File
+    // Export as JSON
     function exportQuestions() {
       if (rawQuestions.length === 0) {
         alert('エクスポートする問題がありません。');
         return;
       }
 
-      // Convert questions to CSV lines: "問題文,解答"
-      const lines = rawQuestions.map(item => {
-        let q = item.q.replace(/"/g, '""');
-        let a = item.a.replace(/"/g, '""');
-        if (q.includes(',') || q.includes('\n') || q.includes('"')) q = `"${q}"`;
-        if (a.includes(',') || a.includes('\n') || a.includes('"')) a = `"${a}"`;
-        return `${q},${a}`;
-      });
+      const jsonStr = JSON.stringify(rawQuestions, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `quiz_questions_${today}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
+      showToast('JSON形式で問題を保存しました！');
+    }
+
+    // Export as TXT [問題文,解答]
+    function exportQuestionsAsTxt() {
+      if (rawQuestions.length === 0) {
+        alert('エクスポートする問題がありません。');
+        return;
+      }
+
+      // Convert each question to "q,a" format
+      const lines = rawQuestions.map(item => `${item.q},${item.a}`);
       const txtContent = lines.join('\n');
+
       const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       
@@ -1180,10 +1203,10 @@
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      showToast('問題データをTXTファイル(CSV形式)で保存しました！');
+      showToast('TXT形式（問題文,解答）で保存しました！');
     }
 
-    // IMPORT from TXT / CSV / JSON
+    // Import file (JSON or TXT)
     function handleFileImport(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -1193,35 +1216,30 @@
         const content = event.target.result;
         let count = 0;
 
-        if (file.name.endsWith('.json')) {
-          try {
-            const importedData = JSON.parse(content);
-            if (Array.isArray(importedData)) {
-              importedData.forEach(item => {
-                if (item.q && item.a) {
-                  rawQuestions.push({
-                    id: item.id || (Date.now() + Math.random()),
-                    q: item.q,
-                    a: item.a,
-                    alt: Array.isArray(item.alt) ? item.alt : []
-                  });
-                  count++;
-                }
-              });
-            }
-          } catch(err) {
-            alert('JSONファイルの読み込みに失敗しました。');
-            return;
+        try {
+          // Try parsing as JSON first
+          const importedData = JSON.parse(content);
+          if (Array.isArray(importedData)) {
+            importedData.forEach(item => {
+              if (item.q && item.a) {
+                rawQuestions.push({
+                  id: item.id || (Date.now() + Math.random()),
+                  q: item.q,
+                  a: item.a,
+                  alt: Array.isArray(item.alt) ? item.alt : []
+                });
+                count++;
+              }
+            });
           }
-        } else {
-          // Process as TXT / CSV
-          const lines = content.split(/\r?\n/);
+        } catch (err) {
+          // Fallback to text line-by-line parsing (問題文,解答)
+          const lines = content.split('\n');
           lines.forEach(line => {
-            if (!line.trim()) return;
-            const parts = line.split(',');
+            const parts = line.split(/[,,\t]/);
             if (parts.length >= 2) {
-              let q = parts[0].trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"');
-              let a = parts[1].trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"');
+              const q = parts[0].trim();
+              const a = parts[1].trim();
               if (q && a) {
                 rawQuestions.push({
                   id: Date.now() + Math.random(),
@@ -1240,14 +1258,15 @@
           resetAllDecks();
           typingDeck = [];
           quizDeck = [];
-          showToast(`${count} 件の問題をインポートしました！`);
+          showToast(`${count} 件の問題を読み込みました！`);
         } else {
-          alert('ファイル内に有効な問題データが見つかりませんでした。');
+          alert('有効な問題データが読み込めませんでした。JSON形式か「問題文,解答」のテキスト形式を確認してください。');
         }
+
         e.target.value = '';
       };
 
-      reader.readAsText(file, 'UTF-8');
+      reader.readAsText(file);
     }
 
     function deleteSingleQuestion(id) {
